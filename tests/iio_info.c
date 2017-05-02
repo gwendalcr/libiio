@@ -43,6 +43,7 @@ static const struct option options[] = {
 	  {"uri", required_argument, 0, 'u'},
 	  {"scan", no_argument, 0, 's'},
 	  {"auto", no_argument, 0, 'a'},
+	  {"write", no_argument, 0, 'w'},
 	  {0, 0, 0, 0},
 };
 
@@ -53,6 +54,7 @@ static const char *options_descriptions[] = {
 	"Use the context at the provided URI.",
 	"Scan for available backends.",
 	"Scan for available contexts and if only one is available use it.",
+	"Write probing (may have side effects).",
 };
 
 static void usage(void)
@@ -175,12 +177,12 @@ int main(int argc, char **argv)
 	int c, option_index = 0, arg_index = 0, xml_index = 0, ip_index = 0,
 	    uri_index = 0;
 	enum backend backend = LOCAL;
-	bool do_scan = false, detect_context = false;
+	bool do_scan = false, detect_context = false, write_probe = false;
 	unsigned int i, major, minor;
 	char git_tag[8];
-	int ret;
+	int ret, retw;
 
-	while ((c = getopt_long(argc, argv, "+hn:x:u:sa",
+	while ((c = getopt_long(argc, argv, "+hn:x:u:saw",
 					options, &option_index)) != -1) {
 		switch (c) {
 		case 'h':
@@ -220,6 +222,10 @@ int main(int argc, char **argv)
 		case 'a':
 			arg_index += 1;
 			detect_context = true;
+			break;
+		case 'w':
+			arg_index += 1;
+			write_probe = true;
 			break;
 		case '?':
 			return EXIT_FAILURE;
@@ -359,18 +365,27 @@ int main(int argc, char **argv)
 				char buf[1024];
 				ret = (int) iio_channel_attr_read(ch,
 						attr, buf, sizeof(buf));
+				if (write_probe)
+					retw = (int) iio_channel_attr_write(ch,
+						attr, ret > 0 ? buf : "0");
+
+				printf("\t\t\t\tattr %2u: %s ", k, attr);
+                                if (write_probe) {
+					if (ret > 0 && retw > 0)
+						printf("(wr) ");
+					else if (ret > 0 && retw < 0)
+						printf("(ro) ");
+					else if (ret < 0 && retw > 0)
+						printf("(wo) ");
+					else
+						printf("(er) ");
+				}
+
 				if (ret > 0) {
-					printf("\t\t\t\tattr %u: %s"
-							" value: %s\n", k,
-							attr, buf);
-				} else if (ret == -ENOSYS) {
-					printf("\t\t\t\tattr %u: %s\n",
-							k, attr);
+					printf("value: %s\n", buf);
 				} else {
 					iio_strerror(-ret, buf, sizeof(buf));
-
-					fprintf(stderr, "Unable to read attribute %s: %s\n",
-							attr, buf);
+					printf("ERROR: %s (%i)\n", buf, ret);
 				}
 			}
 		}
@@ -384,17 +399,29 @@ int main(int argc, char **argv)
 				char buf[1024];
 				ret = (int) iio_device_attr_read(dev,
 						attr, buf, sizeof(buf));
+				if (write_probe)
+					retw = (int) iio_device_attr_write(dev,
+							attr, ret > 0 ? buf : "0");
+
+				printf("\t\t\t\tattr %2u: %s ",
+						j, attr);
+
+				if (write_probe) {
+					if (ret > 0 && retw > 0)
+						printf("(wr) ");
+					else if (ret > 0 && retw < 0)
+						printf("(ro) ");
+					else if (ret < 0 && retw > 0)
+						printf("(wo) ");
+					else
+						printf("(er) ");
+				}
+
 				if (ret > 0) {
-					printf("\t\t\t\tattr %u: %s value: %s"
-							"\n", j, attr, buf);
-				} else if (ret == -ENOSYS) {
-					printf("\t\t\t\tattr %u: %s\n",
-							j, attr);
+					printf("value: %s\n", buf);
 				} else {
 					iio_strerror(-ret, buf, sizeof(buf));
-
-					fprintf(stderr, "Unable to read attribute %s: %s\n",
-							attr, buf);
+					printf("ERROR: %s (%i)\n", buf, ret);
 				}
 			}
 		}
@@ -409,12 +436,14 @@ int main(int argc, char **argv)
 
 				ret = (int) iio_device_debug_attr_read(dev,
 						attr, buf, sizeof(buf));
-				if (ret > 0)
-					printf("\t\t\t\tdebug attr %u: %s value: %s\n",
-							j, attr, buf);
-				else if (ret == -ENOSYS)
-					printf("\t\t\t\tdebug attr %u: %s\n", j,
-							attr);
+				printf("\t\t\t\tdebug attr %2u: %s ",
+						j, attr);
+				if (ret > 0) {
+					printf("value: %s\n", buf);
+				} else {
+					iio_strerror(-ret, buf, sizeof(buf));
+					printf("ERROR: %s (%i)\n", buf, ret);
+				}
 			}
 		}
 
